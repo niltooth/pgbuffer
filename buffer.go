@@ -2,6 +2,7 @@ package pgbuffer
 
 import (
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/lib/pq"
@@ -18,7 +19,8 @@ func NewBuffer(db *sql.DB, cfg *Config) *Buffer {
 
 	for _, t := range cfg.Tables {
 		buff := &BufferedData{
-			Columns: t.Columns,
+			Columns:   t.Columns,
+			LastWrite: time.Now(),
 		}
 		data[t.Table] = buff
 	}
@@ -64,27 +66,32 @@ func (b *Buffer) Flush(table string, buff *BufferedData, data [][]interface{}) {
 	stmt, err := tx.Prepare(cpin)
 	if err != nil {
 		//TODO LOG
+		fmt.Println(err)
 		return
 	}
 
 	for _, row := range data {
 		_, err := stmt.Exec(row...)
 		if err != nil {
+			fmt.Println(err)
 			//TODO LOG
 		}
 	}
 	_, err = stmt.Exec()
 	if err != nil {
+		fmt.Println(err)
 		//TODO LOG
 		return
 	}
 	err = stmt.Close()
 	if err != nil {
+		fmt.Println(err)
 		//TODO LOG
 		return
 	}
 	err = tx.Commit()
 	if err != nil {
+		fmt.Println(err)
 		//TODO LOG
 		return
 	}
