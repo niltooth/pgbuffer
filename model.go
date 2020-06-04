@@ -22,7 +22,7 @@ type BufferedData struct {
 
 type Config struct {
 	MaxTime time.Duration  `yaml:"max-time"`
-	Limit   int            `yaml:"max-time"`
+	Limit   int            `yaml:"limit"`
 	Tables  []*TableConfig `yaml:"tables"`
 }
 
