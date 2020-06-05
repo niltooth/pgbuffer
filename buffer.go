@@ -69,7 +69,8 @@ func (b *Buffer) Flush(table string, buff *BufferedData, data [][]interface{}) {
 	st := time.Now()
 	var wg sync.WaitGroup
 	if len(data) <= b.workers {
-		b.flushBatch(&wg, table, buff.Columns, data)
+		wg.Add(1)
+		go b.flushBatch(&wg, table, buff.Columns, data)
 	} else {
 
 		var chunks = make([][][]interface{}, 0)
@@ -98,8 +99,8 @@ func (b *Buffer) Flush(table string, buff *BufferedData, data [][]interface{}) {
 			}
 			go b.flushBatch(&wg, table, buff.Columns, chunks[i])
 		}
-		wg.Wait()
 	}
+	wg.Wait()
 	if b.logger != nil {
 		b.logger.Infof("flushed %d records in %v", len(data), time.Since(st))
 	}
