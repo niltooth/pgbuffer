@@ -2,18 +2,28 @@ package pgbuffer
 
 import (
 	"database/sql"
-	"fmt"
+	"sync"
 	"time"
 
 	"github.com/lib/pq"
+	"github.com/sirupsen/logrus"
 )
 
-func NewBuffer(db *sql.DB, cfg *Config) *Buffer {
+func NewBuffer(db *sql.DB, cfg *Config, logger *logrus.Logger) *Buffer {
 	b := &Buffer{
 		db:        db,
 		writeChan: make(chan *writePayload, 1000),
+		logger:    logger,
 	}
 	b.MaxTime = cfg.MaxTime
+	b.workers = cfg.Workers
+	//set some default
+	if b.MaxTime == 0 {
+		b.MaxTime = time.Minute
+	}
+	if b.workers == 0 {
+		b.workers = 1
+	}
 	b.Limit = cfg.Limit
 	data := make(map[string]*BufferedData)
 
@@ -42,9 +52,10 @@ func (b *Buffer) Run() {
 			}
 		case <-flushTicker.C:
 			for table, buff := range b.data {
-				if time.Since(buff.LastWrite) > b.MaxTime || len(buff.Data) >= b.Limit {
+				if (time.Since(buff.LastWrite) > b.MaxTime) || (b.Limit > 0 && len(buff.Data) >= b.Limit) {
 					data := buff.Data // copy it
 					buff.Data = make([][]interface{}, 0)
+					buff.LastWrite = time.Now()
 					if len(data) > 0 {
 						go b.Flush(table, buff, data)
 					}
@@ -55,44 +66,87 @@ func (b *Buffer) Run() {
 }
 
 func (b *Buffer) Flush(table string, buff *BufferedData, data [][]interface{}) {
+	st := time.Now()
+	var chunks = make([][][]interface{}, 0)
+	chunkSize := len(data) / b.workers
+	for i := 0; i < b.workers; i++ {
+		temp := make([][]interface{}, 0)
+		idx := i * chunkSize
+		end := i*chunkSize + chunkSize
+		for x := range data[idx:end] {
+			temp = append(temp, data[x])
+		}
+		if i == b.workers {
+			for x := range data[idx:] {
+				temp = append(temp, data[x])
+			}
+		}
+		chunks = append(chunks, temp)
+	}
+	var wg sync.WaitGroup
+	if b.logger != nil {
+		b.logger.Infof("workers %v, chunks %v\n", b.workers, len(chunks))
+	}
+	for i := 0; i < b.workers; i++ {
+		wg.Add(1)
+		if b.logger != nil {
+			b.logger.Infof("flushing %v %v records\n", i, len(chunks[i]))
+		}
+		go b.flushBatch(&wg, table, buff.Columns, chunks[i])
+	}
+	wg.Wait()
+	if b.logger != nil {
+		b.logger.Infof("flushed %d records in %v", len(data), time.Since(st))
+	}
+}
+
+func (b *Buffer) flushBatch(wg *sync.WaitGroup, table string, columns []string, data [][]interface{}) {
+	defer wg.Done()
 	tx, err := b.db.Begin()
 	if err != nil {
-		//TODO LOG
+		if b.logger != nil {
+			b.logger.Error(err)
+		}
 		return
 	}
 
 	defer tx.Rollback()
-	cpin := pq.CopyIn(table, buff.Columns...)
+	cpin := pq.CopyIn(table, columns...)
 	stmt, err := tx.Prepare(cpin)
 	if err != nil {
-		//TODO LOG
-		fmt.Println(err)
+		if b.logger != nil {
+			b.logger.Error(err)
+		}
 		return
 	}
 
 	for _, row := range data {
 		_, err := stmt.Exec(row...)
 		if err != nil {
-			fmt.Println(err)
-			//TODO LOG
+			if b.logger != nil {
+				b.logger.Error(err)
+			}
 		}
 	}
 	_, err = stmt.Exec()
 	if err != nil {
-		fmt.Println(err)
-		//TODO LOG
+		if b.logger != nil {
+			b.logger.Error(err)
+		}
 		return
 	}
 	err = stmt.Close()
 	if err != nil {
-		fmt.Println(err)
-		//TODO LOG
+		if b.logger != nil {
+			b.logger.Error(err)
+		}
 		return
 	}
 	err = tx.Commit()
 	if err != nil {
-		fmt.Println(err)
-		//TODO LOG
+		if b.logger != nil {
+			b.logger.Error(err)
+		}
 		return
 	}
 }
