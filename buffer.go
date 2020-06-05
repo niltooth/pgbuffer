@@ -67,34 +67,39 @@ func (b *Buffer) Run() {
 
 func (b *Buffer) Flush(table string, buff *BufferedData, data [][]interface{}) {
 	st := time.Now()
-	var chunks = make([][][]interface{}, 0)
-	chunkSize := len(data) / b.workers
-	for i := 0; i < b.workers; i++ {
-		temp := make([][]interface{}, 0)
-		idx := i * chunkSize
-		end := i*chunkSize + chunkSize
-		for x := range data[idx:end] {
-			temp = append(temp, data[x])
-		}
-		if i == b.workers {
-			for x := range data[idx:] {
+	var wg sync.WaitGroup
+	if len(data) <= b.workers {
+		b.flushBatch(&wg, table, buff.Columns, data)
+	} else {
+
+		var chunks = make([][][]interface{}, 0)
+		chunkSize := len(data) / b.workers
+		for i := 0; i < b.workers; i++ {
+			temp := make([][]interface{}, 0)
+			idx := i * chunkSize
+			end := i*chunkSize + chunkSize
+			for x := range data[idx:end] {
 				temp = append(temp, data[x])
 			}
+			if i == b.workers {
+				for x := range data[idx:] {
+					temp = append(temp, data[x])
+				}
+			}
+			chunks = append(chunks, temp)
 		}
-		chunks = append(chunks, temp)
-	}
-	var wg sync.WaitGroup
-	if b.logger != nil {
-		b.logger.Infof("workers %v, chunks %v\n", b.workers, len(chunks))
-	}
-	for i := 0; i < b.workers; i++ {
-		wg.Add(1)
 		if b.logger != nil {
-			b.logger.Infof("flushing %v %v records\n", i, len(chunks[i]))
+			b.logger.Infof("workers %v, chunks %v\n", b.workers, len(chunks))
 		}
-		go b.flushBatch(&wg, table, buff.Columns, chunks[i])
+		for i := 0; i < b.workers; i++ {
+			wg.Add(1)
+			if b.logger != nil {
+				b.logger.Infof("flushing %v %v records\n", i, len(chunks[i]))
+			}
+			go b.flushBatch(&wg, table, buff.Columns, chunks[i])
+		}
+		wg.Wait()
 	}
-	wg.Wait()
 	if b.logger != nil {
 		b.logger.Infof("flushed %d records in %v", len(data), time.Since(st))
 	}
