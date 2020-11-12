@@ -8,32 +8,29 @@ import (
 )
 
 type Buffer struct {
-	MaxTime   time.Duration
-	Limit     int
-	data      map[string]*BufferedData
-	db        *sql.DB
-	writeChan chan *writePayload
-	logger    *logrus.Logger
-	workers   int
+	data        map[string]*BufferedData
+	db          *sql.DB
+	writeChan   chan *writePayload
+	logger      *logrus.Logger
+	cfg         *Config
+	stopSignal  chan struct{}
+	flushSignal chan struct{}
+}
+
+type Config struct {
+	Limit   int64           `yaml:"limit"`
+	Tables  []*BufferedData `yaml:"tables"`
+	Workers int             `yaml:"workers"`
 }
 
 type BufferedData struct {
 	LastExit  time.Time
 	LastWrite time.Time
-	Columns   []string
-	Data      [][]interface{}
-}
-
-type Config struct {
-	MaxTime time.Duration  `yaml:"max-time"`
-	Limit   int            `yaml:"limit"`
-	Tables  []*TableConfig `yaml:"tables"`
-	Workers int            `yaml:"workers"`
-}
-
-type TableConfig struct {
-	Table   string   `yaml:"table"`
-	Columns []string `yaml:"columns"`
+	data      [][]interface{}
+	Table     string   `yaml:"table"`
+	Columns   []string `yaml:"columns"`
+	Limit     int64    `yaml:"limit"`
+	position  int64
 }
 
 type writePayload struct {
