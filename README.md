@@ -26,12 +26,12 @@ logger := logrus.New()
 logger.SetOutput(os.Stdin)
 
 //Setup a new buffer config
-cfg := pgbuffer.Config{
+cfg := &pgbuffer.Config{
     Limit: 100,
     Workers: 2,
     Logger: logger, 
     Tables: []*pgbuffer.BufferedData{
-    	&pgbuffer.BufferedData{
+    	{
     		Table: "test",
     		Columns: []string{"time","foo","bar"},
     	},
