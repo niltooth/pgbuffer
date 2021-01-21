@@ -82,6 +82,5 @@ buff.Run()
 
 ```
 ## TODO
-- create examples
 - write statistics handling
 - optional buffer to disk instead of memory
