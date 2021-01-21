@@ -21,6 +21,7 @@ type Config struct {
 	Limit   int64           `yaml:"limit"`
 	Tables  []*BufferedData `yaml:"tables"`
 	Workers int             `yaml:"workers"`
+	Logger *logrus.Logger
 }
 
 type BufferedData struct {

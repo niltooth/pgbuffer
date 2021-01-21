@@ -2,22 +2,32 @@ package pgbuffer
 
 import (
 	"database/sql"
+	"errors"
+	"github.com/sirupsen/logrus"
+	"io/ioutil"
 	"sync"
 	"time"
 
 	"github.com/lib/pq"
-	"github.com/sirupsen/logrus"
 )
 
-func NewBuffer(db *sql.DB, cfg *Config, logger *logrus.Logger) *Buffer {
+func NewBuffer(db *sql.DB, cfg *Config) (*Buffer,error) {
+	if cfg.Logger == nil {
+		cfg.Logger = logrus.New()
+		cfg.Logger.SetOutput(ioutil.Discard)
+	}
 	b := &Buffer{
 		db:        db,
 		writeChan: make(chan *writePayload, 1000),
-		logger:    logger,
+		logger:    cfg.Logger,
 		cfg:       cfg,
 		stopSignal:      make(chan struct{}, 2),
 		flushSignal:     make(chan struct{}, 2),
 	}
+	if err := b.validate(); err != nil {
+		return nil,err
+	}
+
 	//Setup some defaults
 	if cfg.Limit == 0 {
 		cfg.Limit = 1000
@@ -35,7 +45,34 @@ func NewBuffer(db *sql.DB, cfg *Config, logger *logrus.Logger) *Buffer {
 		t.LastWrite = time.Now()
 		b.data[t.Table] = t
 	}
-	return b
+	return b,nil
+}
+
+func (b *Buffer) validate() error {
+	if len(b.cfg.Tables) == 0 {
+		return errors.New("no table config provided")
+	}
+	for _,t := range b.cfg.Tables {
+		if err := b.validateTable(t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *Buffer) validateTable(t *BufferedData) error {
+	tx, err := b.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	cpin := pq.CopyIn(t.Table, t.Columns...)
+	stmt, err := tx.Prepare(cpin)
+	if err != nil {
+		return err
+	}
+	stmt.Close()
+	return nil
 }
 
 func (b *Buffer) Stop() {

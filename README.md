@@ -21,11 +21,15 @@ import 	(
     _ "github.com/lib/pq"
 
 )
+//Setup an optional logger
+logger := logrus.New()
+logger.SetOutput(os.Stdin)
 
-//Setup a new buffer
+//Setup a new buffer config
 cfg := pgbuffer.Config{
     Limit: 100,
     Workers: 2,
+    Logger: logger, 
     Tables: []*pgbuffer.BufferedData{
     	&pgbuffer.BufferedData{
     		Table: "test",
@@ -35,8 +39,16 @@ cfg := pgbuffer.Config{
 }
 //Connect to the db
 db, err := sql.Open("postgres", dbUrl)
+if err != nil {
+    log.Fatal(err)
+}
 
-buff := pgbuffer.NewBuffer(db, cfg, logrus.New())
+//Initialize the buffer
+buff,err := pgbuffer.NewBuffer(db, cfg)
+if err != nil {
+    log.Fatal(err)
+}
+
 
 //Write some test data every second to the buffer.
 //It will flush after 101 writes because the limit is set to 100
