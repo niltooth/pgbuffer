@@ -42,11 +42,11 @@ func main() {
 	}
 	//Connect to the db
 	db, err := sql.Open("postgres", os.Getenv("DB_URL"))
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(2)
 	if err != nil {
 		log.Fatal(err)
 	}
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(2)
 
 	//Initialize the buffer
 	buff, err = pgbuffer.NewBuffer(db, cfg)
