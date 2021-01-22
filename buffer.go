@@ -11,21 +11,21 @@ import (
 	"github.com/lib/pq"
 )
 
-func NewBuffer(db *sql.DB, cfg *Config) (*Buffer,error) {
+func NewBuffer(db *sql.DB, cfg *Config) (*Buffer, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = logrus.New()
 		cfg.Logger.SetOutput(ioutil.Discard)
 	}
 	b := &Buffer{
-		db:        db,
-		writeChan: make(chan *writePayload, 1000),
-		logger:    cfg.Logger,
-		cfg:       cfg,
-		stopSignal:      make(chan struct{}, 2),
-		flushSignal:     make(chan struct{}, 2),
+		db:          db,
+		writeChan:   make(chan *writePayload, 1000),
+		logger:      cfg.Logger,
+		cfg:         cfg,
+		stopSignal:  make(chan struct{}, 2),
+		flushSignal: make(chan struct{}, 2),
 	}
 	if err := b.validate(); err != nil {
-		return nil,err
+		return nil, err
 	}
 
 	//Setup some defaults
@@ -45,14 +45,14 @@ func NewBuffer(db *sql.DB, cfg *Config) (*Buffer,error) {
 		t.LastWrite = time.Now()
 		b.data[t.Table] = t
 	}
-	return b,nil
+	return b, nil
 }
 
 func (b *Buffer) validate() error {
 	if len(b.cfg.Tables) == 0 {
 		return errors.New("no table config provided")
 	}
-	for _,t := range b.cfg.Tables {
+	for _, t := range b.cfg.Tables {
 		if err := b.validateTable(t); err != nil {
 			return err
 		}
@@ -86,7 +86,7 @@ func (b *Buffer) FlushAll() {
 func (b *Buffer) Run() {
 	//Control loop
 	//TODO: refactor
-	CONTROL:
+CONTROL:
 	for {
 		select {
 		case data := <-b.writeChan:
@@ -124,6 +124,8 @@ func (b *Buffer) Run() {
 }
 
 func (b *Buffer) Flush(buff *BufferedData, data [][]interface{}) {
+	buff.Lock()
+	defer buff.Unlock()
 	st := time.Now()
 	var wg sync.WaitGroup
 	if len(data) <= b.cfg.Workers {
@@ -179,37 +181,40 @@ func (b *Buffer) flushBatch(wg *sync.WaitGroup, table string, columns []string, 
 	stmt, err := tx.Prepare(cpin)
 	if err != nil {
 		if b.logger != nil {
-			b.logger.Error(err)
+			b.logger.Errorf("prepare failed %v", err)
 		}
 		return
 	}
 
 	for _, row := range data {
-		_, err := stmt.Exec(row...)
-		if err != nil {
-			if b.logger != nil {
-				b.logger.Error(err)
+		if len(row) > 0 {
+			_, err := stmt.Exec(row...)
+			if err != nil {
+				if b.logger != nil {
+					b.logger.Errorf("exec failed: %v", err)
+				}
+				return
 			}
 		}
 	}
 	_, err = stmt.Exec()
 	if err != nil {
 		if b.logger != nil {
-			b.logger.Error(err)
+			b.logger.Errorf("end exec failed %v", err)
 		}
 		return
 	}
-	err = stmt.Close()
-	if err != nil {
-		if b.logger != nil {
-			b.logger.Error(err)
-		}
-		return
-	}
+	//err = stmt.Close()
+	//if err != nil {
+	//	if b.logger != nil {
+	//		b.logger.Error(err)
+	//	}
+	//	return
+	//}
 	err = tx.Commit()
 	if err != nil {
 		if b.logger != nil {
-			b.logger.Error(err)
+			b.logger.Errorf("commit failure %v", err)
 		}
 		return
 	}

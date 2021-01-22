@@ -2,6 +2,7 @@ package pgbuffer
 
 import (
 	"database/sql"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -21,10 +22,12 @@ type Config struct {
 	Limit   int64           `yaml:"limit"`
 	Tables  []*BufferedData `yaml:"tables"`
 	Workers int             `yaml:"workers"`
-	Logger *logrus.Logger
+	Logger  *logrus.Logger
 }
 
 type BufferedData struct {
+	sync.Mutex
+	flushing  bool
 	LastExit  time.Time
 	LastWrite time.Time
 	data      [][]interface{}

@@ -17,6 +17,7 @@ import (
 )
 
 var buff *pgbuffer.Buffer
+
 //Table should be as follows
 //CREATE TABLE test (
 //	time timestamp with time zone not null,
@@ -29,7 +30,7 @@ func main() {
 	logger.SetOutput(os.Stdin)
 
 	cfg := &pgbuffer.Config{
-		Limit:   100,
+		Limit:   1000,
 		Workers: 2,
 		Logger:  logger,
 		Tables: []*pgbuffer.BufferedData{
@@ -41,6 +42,8 @@ func main() {
 	}
 	//Connect to the db
 	db, err := sql.Open("postgres", os.Getenv("DB_URL"))
+	db.SetMaxOpenConns(10)
+	db.SetMaxIdleConns(2)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -51,7 +54,6 @@ func main() {
 		log.Fatal(err)
 	}
 	http.HandleFunc("/", handler)
-
 
 	wg := &sync.WaitGroup{}
 	httpServer := &http.Server{Addr: ":8080"}
@@ -72,11 +74,12 @@ func main() {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigs
-		buff.Stop()
 		httpServer.Shutdown(context.Background())
+		buff.Stop()
 
 	}()
 	wg.Wait()
+	db.Close()
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -95,6 +98,6 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing body", http.StatusBadRequest)
 		return
 	}
-	buff.Write("test",time.Now(),b)
+	buff.Write("test", time.Now(), string(b))
 
 }
